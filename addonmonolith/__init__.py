@@ -18,7 +18,7 @@ class TimeLimitConfig:
 @dataclass
 class RetirementConfig:
     deck_name: str
-    max_interval_sec: float
+    max_interval_days: float
 
 
 @dataclass
@@ -75,13 +75,6 @@ def dryrun_fence(fn: Callable[..., None]) -> Callable[..., None]:
     return fn
 
 
-def get_times(card_inds: Sequence[int]) -> List[float]:
-    times = [
-        mw.col.db.scalar("select sum(time)/1000.0 from revlog where cid = ?", ind)
-        for ind in card_inds
-    ]
-    return times
-
 @dryrun_fence
 def suspend_cards(cards: Sequence[int]) -> None:
     showInfo("Danger: should not be running yet")  # TODO: let run
@@ -132,7 +125,10 @@ def suspendLeeches() -> None:
             suspend_cards(suspended_cards)
         return
 
-    review_card_times = get_times(review_card_inds)
+    review_card_times = [
+        mw.col.db.scalar("select sum(time)/1000.0 from revlog where cid = ?", ind)
+        for ind in review_card_inds
+    ]
     review_card_times, review_card_inds = zip(
         *sorted(zip(review_card_times, review_card_inds))
     )
@@ -166,9 +162,10 @@ def suspendLeeches() -> None:
 @display_errors
 def retire() -> None:
     for retire_config in config.deck_retirements:
-        deck_card_inds = mw.col.find_cards(f"\"deck:{retire_config.deck_name}\" and (-is:suspended or -tag:{config.retired_tag})")
-        deck_times = get_times(deck_card_inds)
-        to_suspend = [ind for t, ind in zip(deck_times, deck_card_inds) if t > retire_config.max_interval_sec]
+        deck_card_inds = mw.col.find_cards(f"\"deck:{retire_config.deck_name}\" and is:review and (-is:suspended or -tag:{config.retired_tag})")
+
+        deck_times = [mw.col.card_stats_data(ind).interval for ind in deck_card_inds]
+        to_suspend = [ind for t, ind in zip(deck_times, deck_card_inds) if t > retire_config.max_interval_days]
 
         if askUser(
             f"deck: {retire_config.deck_name}\n"
