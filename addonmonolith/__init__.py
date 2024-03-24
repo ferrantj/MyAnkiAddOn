@@ -2,10 +2,9 @@ import copy
 import datetime
 from dataclasses import dataclass
 from typing import Sequence, TypeVar, Callable, List, Optional
-from aqt import mw, qt, gui_hooks
+from aqt import mw, gui_hooks
 from aqt.utils import showInfo, askUser
 from math import floor
-from anki.cards import Card
 from anki.decks import DeckConfigDict
 
 
@@ -17,8 +16,15 @@ class TimeLimitConfig:
 
 
 @dataclass
+class RetirementConfig:
+    deck_name: str
+    max_interval_sec: float
+
+
+@dataclass
 class MonolithConfig:
     review_time_limits: List[TimeLimitConfig]
+    deck_retirements: List[RetirementConfig]
     dryrun: bool = True
     debug: bool = False
     retired_tag: str = "Retired"
@@ -34,6 +40,9 @@ class MonolithConfig:
         data = copy.deepcopy(data or {})
         data["review_time_limits"] = [
             TimeLimitConfig(**x) for x in data.get("review_time_limits", [])
+        ]
+        data["deck_retirements"] = [
+            RetirementConfig(**x) for x in data.get("deck_retirements", [])
         ]
         return cls(**data)
 
@@ -66,16 +75,36 @@ def dryrun_fence(fn: Callable[..., None]) -> Callable[..., None]:
     return fn
 
 
+def get_times(card_inds: Sequence[int]) -> List[float]:
+    times = [
+        mw.col.db.scalar("select sum(time)/1000.0 from revlog where cid = ?", ind)
+        for ind in card_inds
+    ]
+    return times
+
 @dryrun_fence
-def suspend_cards(cards: Sequence[Card]) -> None:
+def suspend_cards(cards: Sequence[int]) -> None:
     showInfo("Danger: should not be running yet")  # TODO: let run
     # mw.col.sched.suspend_cards(cards)
 
 
 @dryrun_fence
-def unsuspend_cards(cards: Sequence[Card]) -> None:
+def unsuspend_cards(cards: Sequence[int]) -> None:
     showInfo("Danger: should not be running yet")  # TODO: let run
     # mw.col.sched.unsuspend_cards(cards)
+
+
+@dryrun_fence
+def tag_cards(cards: Sequence[int], tag) -> None:
+    showInfo("Danger: should not be running yet")  # TODO: let run
+    # notes = set()
+    # for card in cards:
+    #     note = mw.col.get_card(card).note()
+    #     if note in notes:
+    #         continue
+    #     note.add_tag(tag)
+    #     notes.add(note)
+    # mw.col.update_notes(list(notes))
 
 
 @dryrun_fence
@@ -103,10 +132,7 @@ def suspendLeeches() -> None:
             suspend_cards(suspended_cards)
         return
 
-    review_card_times = [
-        mw.col.db.scalar("select sum(time)/1000.0 from revlog where cid = ?", ind)
-        for ind in review_card_inds
-    ]
+    review_card_times = get_times(review_card_inds)
     review_card_times, review_card_inds = zip(
         *sorted(zip(review_card_times, review_card_inds))
     )
@@ -139,16 +165,18 @@ def suspendLeeches() -> None:
 
 @display_errors
 def retire() -> None:
-    ## old config
-    # {
-    #     "Last Mass Retirement": 1705035172.848479,
-    #     "Mass Retirement Notifications": "on",
-    #     "Mass Retirement on Startup": "on",
-    #     "Real-time Notifications": "off",
-    #     "Retirement Deck Name": "Retired Cards",
-    #     "Retirement Tag": "Retired"
-    # }
-    showInfo("TODO: implement retire")
+    for retire_config in config.deck_retirements:
+        deck_card_inds = mw.col.find_cards(f"\"deck:{retire_config.deck_name}\" and (-is:suspended or -tag:{config.retired_tag})")
+        deck_times = get_times(deck_card_inds)
+        to_suspend = [ind for t, ind in zip(deck_times, deck_card_inds) if t > retire_config.max_interval_sec]
+
+        if askUser(
+            f"deck: {retire_config.deck_name}\n"
+            f"deck_cards: {len(deck_card_inds)}\n"
+            f"to_retire: {len(to_suspend)}\n\n"
+            "Continue?"
+        ):
+            tag_cards(to_suspend, config.retired_tag)
 
 
 @display_errors

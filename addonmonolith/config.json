@@ -13,5 +13,27 @@
       "deck_name": "Personal",
       "review_time_limit_sec": 900
     }
+  ],
+  "deck_retirements": [
+    {
+      "deck_name": "Work",
+      "max_interval_sec": 1.577e+8
+    },
+    {
+      "deck_name": "Personal::Japanese::Characters::Japanese Kana",
+      "max_interval_sec": 3.154e+7
+    },
+    {
+      "deck_name": "Personal::Japanese::Characters::Remembering the Kanji 1, 6th edition (2200 kanji)",
+      "max_interval_sec": 6.307e+7
+    },
+    {
+      "deck_name": "Personal::Japanese::Core 10k Sentences",
+      "max_interval_sec": 6.307e+7
+    },
+    {
+      "deck_name": "Personal::Japanese::Reading",
+      "max_interval_sec": 6.307e+7
+    }
   ]
 }
