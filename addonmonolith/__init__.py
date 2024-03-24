@@ -77,33 +77,29 @@ def dryrun_fence(fn: Callable[..., None]) -> Callable[..., None]:
 
 @dryrun_fence
 def suspend_cards(cards: Sequence[int]) -> None:
-    showInfo("Danger: should not be running yet")  # TODO: let run
-    # mw.col.sched.suspend_cards(cards)
+    mw.col.sched.suspend_cards(cards)
 
 
 @dryrun_fence
 def unsuspend_cards(cards: Sequence[int]) -> None:
-    showInfo("Danger: should not be running yet")  # TODO: let run
-    # mw.col.sched.unsuspend_cards(cards)
+    mw.col.sched.unsuspend_cards(cards)
 
 
 @dryrun_fence
 def tag_cards(cards: Sequence[int], tag) -> None:
-    showInfo("Danger: should not be running yet")  # TODO: let run
-    # notes = set()
-    # for card in cards:
-    #     note = mw.col.get_card(card).note()
-    #     if note in notes:
-    #         continue
-    #     note.add_tag(tag)
-    #     notes.add(note)
-    # mw.col.update_notes(list(notes))
+    notes = set()
+    for card in cards:
+        note = mw.col.get_card(card).note()
+        if note in notes:
+            continue
+        note.add_tag(tag)
+        notes.add(note)
+    mw.col.update_notes(list(notes))
 
 
 @dryrun_fence
 def save_config(deck_config: DeckConfigDict) -> None:
-    showInfo("Danger: should not be running yet")  # TODO: let run
-    # mw.col.decks.save(deck_config)
+    mw.col.decks.save(deck_config)
 
 
 @display_errors
@@ -173,6 +169,7 @@ def retire() -> None:
             f"to_retire: {len(to_suspend)}\n\n"
             "Continue?"
         ):
+            suspend_cards(to_suspend)
             tag_cards(to_suspend, config.retired_tag)
 
 

@@ -1,5 +1,5 @@
 {
-  "dryrun": true,
+  "dryrun": false,
   "suspend_frac":  0.1,
   "unsuspend_buffer_frac": 0.05,
   "debug": true,
@@ -7,7 +7,7 @@
   "review_time_limits": [
     {
       "deck_name": "Work",
-      "review_time_limit_sec": 3600
+      "review_time_limit_sec": 2700
     },
     {
       "deck_name": "Personal",
