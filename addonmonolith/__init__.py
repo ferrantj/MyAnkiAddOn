@@ -181,12 +181,20 @@ def adjustReview() -> None:
         ).timestamp()
         * 1000
     )
-    avg_review = (
-        mw.col.db.scalar("select avg(time)/1000.0 from revlog where id > ?", start_mili)
-        or config.default_review_seconds
-    )
     for time_limit_config in config.review_time_limits:
         deck = mw.col.decks.by_name(time_limit_config.deck_name)
+
+        avg_review = (
+                mw.col.db.scalar(
+                    "select avg(revlog.time)/1000.0 from revlog "
+                    "left join cards on revlog.cid = cards.id "
+                    "left join decks on cards.did = decks.id "
+                    "where revlog.id > ? and decks.name like ?",
+                    start_mili,
+                    time_limit_config.deck_name + "%",
+                )
+                or config.default_review_seconds
+        )
 
         deck_config = mw.col.decks.get_config(deck["conf"])
         deck_config["rev"]["perDay"] = int(
