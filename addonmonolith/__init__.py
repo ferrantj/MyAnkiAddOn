@@ -1,6 +1,6 @@
 import copy
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Sequence, TypeVar, Callable, List, Optional
 from aqt import mw, gui_hooks
 from aqt.utils import showInfo, askUser
@@ -25,6 +25,7 @@ class RetirementConfig:
 class MonolithConfig:
     review_time_limits: List[TimeLimitConfig]
     deck_retirements: List[RetirementConfig]
+    verbose: bool = True
     dryrun: bool = True
     debug: bool = False
     retired_tag: str = "Retired"
@@ -34,6 +35,7 @@ class MonolithConfig:
     goal_retention: float = 0.8
     days_to_avg: int = 30
     default_review_seconds: int = 60
+    last_run_review: float = 0
 
     @classmethod
     def from_dict(cls, data: Optional[dict]):
@@ -45,6 +47,13 @@ class MonolithConfig:
             RetirementConfig(**x) for x in data.get("deck_retirements", [])
         ]
         return cls(**data)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def save(self) -> None:
+        data = self.to_dict()
+        mw.addonManager.writeConfig(__name__, data)
 
 
 # Get config
@@ -112,7 +121,7 @@ def suspendLeeches() -> None:
     if len(review_card_inds) < config.min_count:
         unsuspended_cards = suspended_cards
 
-        if askUser(
+        if not config.verbose or askUser(
             "Too few cards to suspend a percentage.\n\n"
             f"total_review_cards: {len(review_card_inds)}\n"
             f"unsuspend_cards: {len(unsuspended_cards)}\n\n"
@@ -143,7 +152,7 @@ def suspendLeeches() -> None:
     cards_to_suspend = set(review_card_inds[suspend_ind + 1 :]) - suspended_cards
     cards_to_unsuspend = set(review_card_inds[:unsuspend_ind]) & suspended_cards
 
-    if askUser(
+    if not config.verbose or askUser(
         f"total_review_cards: {len(review_card_inds)}\n"
         f"suspend_time: {suspend_time / 60:.2f} minutes\n"
         f"unsuspend_time: {unsuspend_time / 60:.2f} minutes\n"
@@ -158,12 +167,18 @@ def suspendLeeches() -> None:
 @display_errors
 def retire() -> None:
     for retire_config in config.deck_retirements:
-        deck_card_inds = mw.col.find_cards(f"\"deck:{retire_config.deck_name}\" and is:review and (-is:suspended or -tag:{config.retired_tag})")
+        deck_card_inds = mw.col.find_cards(
+            f'"deck:{retire_config.deck_name}" and is:review and (-is:suspended or -tag:{config.retired_tag})'
+        )
 
         deck_times = [mw.col.card_stats_data(ind).interval for ind in deck_card_inds]
-        to_suspend = [ind for t, ind in zip(deck_times, deck_card_inds) if t > retire_config.max_interval_days]
+        to_suspend = [
+            ind
+            for t, ind in zip(deck_times, deck_card_inds)
+            if t > retire_config.max_interval_days
+        ]
 
-        if askUser(
+        if not config.verbose or askUser(
             f"deck: {retire_config.deck_name}\n"
             f"deck_cards: {len(deck_card_inds)}\n"
             f"to_retire: {len(to_suspend)}\n\n"
@@ -175,6 +190,12 @@ def retire() -> None:
 
 @display_errors
 def adjustReview() -> None:
+    current_day = datetime.datetime.combine(
+        datetime.datetime.today().date(), datetime.datetime.min.time()
+    ).timestamp()
+    if config.last_run_review >= current_day:
+        return
+
     start_mili = int(
         (
             datetime.datetime.today() - datetime.timedelta(days=config.days_to_avg)
@@ -185,27 +206,27 @@ def adjustReview() -> None:
         deck = mw.col.decks.by_name(time_limit_config.deck_name)
 
         avg_review = (
-                mw.col.db.scalar(
-                    "select avg(revlog.time)/1000.0 from revlog "
-                    "left join cards on revlog.cid = cards.id "
-                    "left join decks on cards.did = decks.id "
-                    "where revlog.id > ? and decks.name like ?",
-                    start_mili,
-                    time_limit_config.deck_name + "%",
-                )
-                or config.default_review_seconds
+            mw.col.db.scalar(
+                "select avg(revlog.time)/1000.0 from revlog "
+                "left join cards on revlog.cid = cards.id "
+                "left join decks on cards.did = decks.id "
+                "where revlog.id > ? and decks.name like ?",
+                start_mili,
+                time_limit_config.deck_name + "%",
+            )
+            or config.default_review_seconds
         )
 
         avg_review_retention = 1 - (
-                mw.col.db.scalar(
-                    "select avg(revlog.ease = 1) from revlog "
-                    "left join cards on revlog.cid = cards.id "
-                    "left join decks on cards.did = decks.id "
-                    "where revlog.id > ? and decks.name like ?",
-                    start_mili,
-                    time_limit_config.deck_name + "%",
-                )
-                or 1 - config.goal_retention
+            mw.col.db.scalar(
+                "select avg(revlog.ease = 1) from revlog "
+                "left join cards on revlog.cid = cards.id "
+                "left join decks on cards.did = decks.id "
+                "where revlog.id > ? and decks.name like ?",
+                start_mili,
+                time_limit_config.deck_name + "%",
+            )
+            or 1 - config.goal_retention
         )
 
         deck_config = mw.col.decks.get_config(deck["conf"])
@@ -218,13 +239,15 @@ def adjustReview() -> None:
             / (time_limit_config.new_card_assumed_repeat * avg_review)
         )
 
-        if askUser(
+        if not config.verbose or askUser(
             f"deck: {time_limit_config.deck_name}\n"
             f"config_new_per_day: {deck_config['new']['perDay']}\n"
             f"config_review_per_day: {deck_config['rev']['perDay']}\n\n"
             "Continue?"
         ):
             save_config(deck_config)
+    config.last_run_review = current_day
+    config.save()
 
 
 gui_hooks.main_window_did_init.append(retire)

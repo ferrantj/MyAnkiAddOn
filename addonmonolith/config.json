@@ -1,9 +1,11 @@
 {
   "dryrun": false,
+  "verbose": true,
   "suspend_frac":  0.1,
   "unsuspend_buffer_frac": 0.05,
   "debug": true,
   "min_count": 1000,
+  "last_run_review": 0,
   "review_time_limits": [
     {
       "deck_name": "Work",
