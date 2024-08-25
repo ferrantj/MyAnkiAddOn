@@ -196,13 +196,25 @@ def adjustReview() -> None:
                 or config.default_review_seconds
         )
 
+        avg_review_retention = 1 - (
+                mw.col.db.scalar(
+                    "select avg(revlog.ease = 1) from revlog "
+                    "left join cards on revlog.cid = cards.id "
+                    "left join decks on cards.did = decks.id "
+                    "where revlog.id > ? and decks.name like ?",
+                    start_mili,
+                    time_limit_config.deck_name + "%",
+                )
+                or 1 - config.goal_retention
+        )
+
         deck_config = mw.col.decks.get_config(deck["conf"])
         deck_config["rev"]["perDay"] = int(
-            time_limit_config.review_time_limit_sec * config.goal_retention / avg_review
+            time_limit_config.review_time_limit_sec * avg_review_retention / avg_review
         )
         deck_config["new"]["perDay"] = int(
             time_limit_config.review_time_limit_sec
-            * config.goal_retention
+            * avg_review_retention
             / (time_limit_config.new_card_assumed_repeat * avg_review)
         )
 
