@@ -36,6 +36,7 @@ class MonolithConfig:
     days_to_avg: int = 30
     default_review_seconds: int = 60
     last_run_review: float = 0
+    last_run_leeches: float = 0
 
     @classmethod
     def from_dict(cls, data: Optional[dict]):
@@ -113,6 +114,12 @@ def save_config(deck_config: DeckConfigDict) -> None:
 
 @display_errors
 def suspendLeeches() -> None:
+    current_day = datetime.datetime.combine(
+        datetime.datetime.today().date(), datetime.datetime.min.time()
+    ).timestamp()
+    if config.last_run_leeches >= current_day:
+        return
+
     review_card_inds = mw.col.find_cards(f"is:review and -tag:{config.retired_tag}")
     suspended_cards = set(
         mw.col.find_cards(f"is:review and is:suspended and -tag:{config.retired_tag}")
@@ -162,6 +169,8 @@ def suspendLeeches() -> None:
     ):
         suspend_cards(cards_to_suspend)
         unsuspend_cards(cards_to_unsuspend)
+    config.last_run_review = current_day
+    config.save()
 
 
 @display_errors

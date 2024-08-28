@@ -6,6 +6,7 @@
   "debug": true,
   "min_count": 1000,
   "last_run_review": 0,
+  "last_run_leeches": 0,
   "review_time_limits": [
     {
       "deck_name": "Work",
