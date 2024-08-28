@@ -169,7 +169,7 @@ def suspendLeeches() -> None:
     ):
         suspend_cards(cards_to_suspend)
         unsuspend_cards(cards_to_unsuspend)
-    config.last_run_review = current_day
+    config.last_run_leeches = current_day
     config.save()
 
 
