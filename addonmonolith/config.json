@@ -5,8 +5,7 @@
   "unsuspend_buffer_frac": 0.05,
   "debug": true,
   "min_count": 1000,
-  "last_run_review": 0,
-  "last_run_leeches": 0,
+  "last_run": 0,
   "review_time_limits": [
     {
       "deck_name": "Work",

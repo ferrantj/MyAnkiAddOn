@@ -35,8 +35,7 @@ class MonolithConfig:
     goal_retention: float = 0.8
     days_to_avg: int = 30
     default_review_seconds: int = 60
-    last_run_review: float = 0
-    last_run_leeches: float = 0
+    last_run: float = 0
 
     @classmethod
     def from_dict(cls, data: Optional[dict]):
@@ -112,30 +111,21 @@ def save_config(deck_config: DeckConfigDict) -> None:
     mw.col.decks.save(deck_config)
 
 
-@display_errors
-def suspendLeeches() -> None:
-    current_day = datetime.datetime.combine(
+def get_day() -> float:
+    return datetime.datetime.combine(
         datetime.datetime.today().date(), datetime.datetime.min.time()
     ).timestamp()
-    if config.last_run_leeches >= current_day:
+
+
+@display_errors
+def suspendLeeches() -> None:
+    if config.last_run >= get_day():
         return
 
-    review_card_inds = mw.col.find_cards(f"is:review and -tag:{config.retired_tag}")
+    review_card_inds = mw.col.find_cards(f"is:review and (-tag:{config.retired_tag} or -is:suspended)")
     suspended_cards = set(
-        mw.col.find_cards(f"is:review and is:suspended and -tag:{config.retired_tag}")
+        mw.col.find_cards(f"is:review and is:suspended")
     )
-
-    if len(review_card_inds) < config.min_count:
-        unsuspended_cards = suspended_cards
-
-        if not config.verbose or askUser(
-            "Too few cards to suspend a percentage.\n\n"
-            f"total_review_cards: {len(review_card_inds)}\n"
-            f"unsuspend_cards: {len(unsuspended_cards)}\n\n"
-            "Continue?"
-        ):
-            suspend_cards(suspended_cards)
-        return
 
     review_card_times = [
         mw.col.db.scalar("select sum(time)/1000.0 from revlog where cid = ?", ind)
@@ -146,12 +136,14 @@ def suspendLeeches() -> None:
     )
 
     suspend_ind = floor(len(review_card_inds) * (1.0 - config.suspend_frac))
-    suspend_ind = max(min(suspend_ind, len(review_card_inds) - 1), 0)
+    suspend_ind = max(suspend_ind, config.min_count)  # at least min_count cards
+    suspend_ind = max(min(suspend_ind, len(review_card_inds) - 1), 0)  # within bounds
     suspend_time = review_card_times[suspend_ind]
 
     unsuspend_frac = max(0.0, config.suspend_frac + config.unsuspend_buffer_frac)
     unsuspend_ind = floor(len(review_card_inds) * (1.0 - unsuspend_frac))
-    unsuspend_ind = max(min(unsuspend_ind, len(review_card_inds) - 1), 0)
+    unsuspend_ind = max(unsuspend_ind, config.min_count)  # at least min_count cards
+    unsuspend_ind = max(min(unsuspend_ind, len(review_card_inds) - 1), 0)  # within bounds
     unsuspend_time = review_card_times[unsuspend_ind]
 
     assert unsuspend_ind <= suspend_ind
@@ -169,12 +161,12 @@ def suspendLeeches() -> None:
     ):
         suspend_cards(cards_to_suspend)
         unsuspend_cards(cards_to_unsuspend)
-    config.last_run_leeches = current_day
-    config.save()
 
 
 @display_errors
 def retire() -> None:
+    if config.last_run >= get_day():
+        return
     for retire_config in config.deck_retirements:
         deck_card_inds = mw.col.find_cards(
             f'"deck:{retire_config.deck_name}" and is:review and (-is:suspended or -tag:{config.retired_tag})'
@@ -196,13 +188,29 @@ def retire() -> None:
             suspend_cards(to_suspend)
             tag_cards(to_suspend, config.retired_tag)
 
+        # Unsuspend cards that are part of retired not but not > max days
+        deck_card_inds = mw.col.find_cards(
+            f'"deck:{retire_config.deck_name}" and is:review and is:suspended and tag:{config.retired_tag}'
+        )
+
+        deck_times = [mw.col.card_stats_data(ind).interval for ind in deck_card_inds]
+        to_unsuspend = [
+            ind
+            for t, ind in zip(deck_times, deck_card_inds)
+            if t <= retire_config.max_interval_days
+        ]
+        if not config.verbose or askUser(
+            f"deck: {retire_config.deck_name}\n"
+            f"retired_and_suspended_deck_cards: {len(deck_card_inds)}\n"
+            f"to_unsuspend: {len(to_unsuspend)}\n\n"
+            "Continue?"
+        ):
+            unsuspend_cards(to_unsuspend)
+
 
 @display_errors
 def adjustReview() -> None:
-    current_day = datetime.datetime.combine(
-        datetime.datetime.today().date(), datetime.datetime.min.time()
-    ).timestamp()
-    if config.last_run_review >= current_day:
+    if config.last_run >= get_day():
         return
 
     start_mili = int(
@@ -255,10 +263,18 @@ def adjustReview() -> None:
             "Continue?"
         ):
             save_config(deck_config)
-    config.last_run_review = current_day
+
+
+@dryrun_fence
+def update_last_run() -> None:
+    current_day = get_day()
+    if config.last_run >= current_day:
+        return
+    config.last_run = current_day
     config.save()
 
 
 gui_hooks.main_window_did_init.append(retire)
 gui_hooks.main_window_did_init.append(suspendLeeches)
 gui_hooks.main_window_did_init.append(adjustReview)
+gui_hooks.main_window_did_init.append(update_last_run)
