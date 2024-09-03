@@ -6,6 +6,7 @@
   "debug": true,
   "min_count": 1000,
   "last_run": 0,
+  "confidence_z_score": 1.98,
   "review_time_limits": [
     {
       "deck_name": "Work",

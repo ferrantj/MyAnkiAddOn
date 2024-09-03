@@ -36,6 +36,7 @@ class MonolithConfig:
     days_to_avg: int = 30
     default_review_seconds: int = 60
     last_run: float = 0
+    confidence_z_score: float = 1.98
 
     @classmethod
     def from_dict(cls, data: Optional[dict]):
@@ -122,10 +123,10 @@ def suspendLeeches() -> None:
     if config.last_run >= get_day():
         return
 
-    review_card_inds = mw.col.find_cards(f"is:review and (-tag:{config.retired_tag} or -is:suspended)")
-    suspended_cards = set(
-        mw.col.find_cards(f"is:review and is:suspended")
+    review_card_inds = mw.col.find_cards(
+        f"is:review and (-tag:{config.retired_tag} or -is:suspended)"
     )
+    suspended_cards = set(mw.col.find_cards(f"is:review and is:suspended"))
 
     review_card_times = [
         mw.col.db.scalar("select sum(time)/1000.0 from revlog where cid = ?", ind)
@@ -143,7 +144,9 @@ def suspendLeeches() -> None:
     unsuspend_frac = max(0.0, config.suspend_frac + config.unsuspend_buffer_frac)
     unsuspend_ind = floor(len(review_card_inds) * (1.0 - unsuspend_frac))
     unsuspend_ind = max(unsuspend_ind, config.min_count)  # at least min_count cards
-    unsuspend_ind = max(min(unsuspend_ind, len(review_card_inds) - 1), 0)  # within bounds
+    unsuspend_ind = max(
+        min(unsuspend_ind, len(review_card_inds) - 1), 0
+    )  # within bounds
     unsuspend_time = review_card_times[unsuspend_ind]
 
     assert unsuspend_ind <= suspend_ind
@@ -234,6 +237,22 @@ def adjustReview() -> None:
             or config.default_review_seconds
         )
 
+        std_review = (
+            mw.col.db.scalar(
+                "select avg((? - revlog.time)*(? - revlog.time)) from revlog "
+                "left join cards on revlog.cid = cards.id "
+                "left join decks on cards.did = decks.id "
+                "where revlog.id > ? and decks.name like ?",
+                avg_review * 1000.0,
+                avg_review * 1000.0,
+                start_mili,
+                time_limit_config.deck_name + "%",
+            )
+            or 0
+        )
+        std_review **= 0.5
+        std_review /= 1000.0
+
         avg_review_retention = 1 - (
             mw.col.db.scalar(
                 "select avg(revlog.ease = 1) from revlog "
@@ -245,6 +264,12 @@ def adjustReview() -> None:
             )
             or 1 - config.goal_retention
         )
+
+        # Add standard error to keep bellow time with confidence level based on z score
+        expected_cards = (
+            time_limit_config.review_time_limit_sec * avg_review_retention / avg_review
+        )
+        avg_review += std_review * config.confidence_z_score / (expected_cards) ** 0.5
 
         deck_config = mw.col.decks.get_config(deck["conf"])
         deck_config["rev"]["perDay"] = int(
